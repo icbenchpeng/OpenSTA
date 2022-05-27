@@ -348,6 +348,7 @@ ArnoldiReduce::makeRcmodelDfs(ts_point *pdrv)
 
   ts_edge **stackV = ts_stackV;
   int stackN = 1;
+  if (pdrv->eN == 0) return;
   stackV[0] = e = pdrv->eV[0];
   ts_orient(pdrv,e);
   pdrv->visited = 1;
