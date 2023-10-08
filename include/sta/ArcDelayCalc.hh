@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,6 +17,7 @@
 #pragma once
 
 #include <string>
+
 #include "MinMax.hh"
 #include "LibertyClass.hh"
 #include "NetworkClass.hh"
@@ -36,10 +37,11 @@ class DcalcAnalysisPt;
 //   UnitDelayCalc
 //   LumpedCapDelayCalc
 //    RCDelayCalc
-//     SimpleRCDelayCalc
+//     SlewDegradeDelayCalc
 //     DmpCeffDelayCalc
 //      DmpCeffElmoreDelayCalc
 //      DmpCeffTwoPoleDelayCalc
+//     ArnoldiDelayCalc
 
 // Abstract class to interface to a delay calculator primitive.
 class ArcDelayCalc : public StaState
@@ -60,16 +62,16 @@ public:
   virtual void inputPortDelay(const Pin *port_pin,
 			      float in_slew,
 			      const RiseFall *rf,
-			      Parasitic *parasitic,
+			      const Parasitic *parasitic,
 			      const DcalcAnalysisPt *dcalc_ap) = 0;
 
   // Find the delay and slew for arc driving drvr_pin.
   virtual void gateDelay(const LibertyCell *drvr_cell,
-			 TimingArc *arc,
+			 const TimingArc *arc,
 			 const Slew &in_slew,
 			 // Pass in load_cap or drvr_parasitic.
 			 float load_cap,
-			 Parasitic *drvr_parasitic,
+			 const Parasitic *drvr_parasitic,
 			 float related_out_cap,
 			 const Pvt *pvt,
 			 const DcalcAnalysisPt *dcalc_ap,
@@ -85,10 +87,10 @@ public:
   virtual void setMultiDrvrSlewFactor(float factor) = 0;
   // Ceff for parasitics with pi models.
   virtual float ceff(const LibertyCell *drvr_cell,
-		     TimingArc *arc,
+		     const TimingArc *arc,
 		     const Slew &in_slew,
 		     float load_cap,
-		     Parasitic *drvr_parasitic,
+		     const Parasitic *drvr_parasitic,
 		     float related_out_cap,
 		     const Pvt *pvt,
 		     const DcalcAnalysisPt *dcalc_ap) = 0;
@@ -96,7 +98,7 @@ public:
   // Find the delay for a timing check arc given the arc's
   // from/clock, to/data slews and related output pin parasitic.
   virtual void checkDelay(const LibertyCell *drvr_cell,
-			  TimingArc *arc,
+			  const TimingArc *arc,
 			  const Slew &from_slew,
 			  const Slew &to_slew,
 			  float related_out_cap,
@@ -105,36 +107,34 @@ public:
 			  // Return values.
 			  ArcDelay &margin) = 0;
   // Report delay and slew calculation.
-  virtual void reportGateDelay(const LibertyCell *drvr_cell,
-			       TimingArc *arc,
-			       const Slew &in_slew,
-			       // Pass in load_cap or drvr_parasitic.
-			       float load_cap,
-			       Parasitic *drvr_parasitic,
-			       float related_out_cap,
-			       const Pvt *pvt,
-			       const DcalcAnalysisPt *dcalc_ap,
-			       int digits,
-			       string *result) = 0;
+  virtual string reportGateDelay(const LibertyCell *drvr_cell,
+                                 const TimingArc *arc,
+                                 const Slew &in_slew,
+                                 // Pass in load_cap or drvr_parasitic.
+                                 float load_cap,
+                                 const Parasitic *drvr_parasitic,
+                                 float related_out_cap,
+                                 const Pvt *pvt,
+                                 const DcalcAnalysisPt *dcalc_ap,
+                                 int digits) = 0;
   // Report timing check delay calculation.
-  virtual void reportCheckDelay(const LibertyCell *cell,
-				TimingArc *arc,
-				const Slew &from_slew,
-				const char *from_slew_annotation,
-				const Slew &to_slew,
-				float related_out_cap,
-				const Pvt *pvt,
-				const DcalcAnalysisPt *dcalc_ap,
-				int digits,
-				string *result) = 0;
+  virtual string reportCheckDelay(const LibertyCell *cell,
+                                  const TimingArc *arc,
+                                  const Slew &from_slew,
+                                  const char *from_slew_annotation,
+                                  const Slew &to_slew,
+                                  float related_out_cap,
+                                  const Pvt *pvt,
+                                  const DcalcAnalysisPt *dcalc_ap,
+                                  int digits) = 0;
   virtual void finishDrvrPin() = 0;
 
 protected:
-  GateTimingModel *gateModel(TimingArc *arc,
+  GateTimingModel *gateModel(const TimingArc *arc,
 			     const DcalcAnalysisPt *dcalc_ap) const;
-  CheckTimingModel *checkModel(TimingArc *arc,
+  CheckTimingModel *checkModel(const TimingArc *arc,
 			       const DcalcAnalysisPt *dcalc_ap) const;
-  TimingModel *model(TimingArc *arc,
+  TimingModel *model(const TimingArc *arc,
 		     const DcalcAnalysisPt *dcalc_ap) const;
 };
 

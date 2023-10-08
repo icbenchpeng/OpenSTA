@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -193,7 +193,7 @@ PathVertex::transition(const StaState *) const
 int
 PathVertex::rfIndex(const StaState *) const
 {
-  return tag_->trIndex();
+  return tag_->rfIndex();
 }
 
 PathAnalysisPt *
@@ -371,7 +371,7 @@ PrevPathVisitor::PrevPathVisitor(const Path *path,
 VertexVisitor *
 PrevPathVisitor::copy() const
 {
-  return new PrevPathVisitor(path_, pred_, sta_);
+  return new PrevPathVisitor(path_, pred_, this);
 }
 
 bool
@@ -396,14 +396,14 @@ PrevPathVisitor::visitFromToPath(const Pin *,
       && (dcalc_tol_ > 0.0 
 	  ? std::abs(delayAsFloat(to_arrival - path_arrival_)) < dcalc_tol_
 	  : delayEqual(to_arrival, path_arrival_))
-      && (tagMatch(to_tag, path_tag_, sta_)
+      && (tagMatch(to_tag, path_tag_, this)
 	  // If the filter exception became active searching from
 	  // from_path to to_path the tag includes the filter, but
 	  // to_vertex still has paths from previous searches that do
 	  // not have the filter.
 	  || (!from_tag->isFilter()
 	      && to_tag->isFilter()
-	      && tagMatch(unfilteredTag(to_tag), path_tag_, sta_)))) {
+	      && tagMatch(unfilteredTag(to_tag), path_tag_, this)))) {
     int arrival_index;
     bool arrival_exists;
     from_path->arrivalIndex(arrival_index, arrival_exists);
@@ -420,8 +420,6 @@ PrevPathVisitor::visitFromToPath(const Pin *,
 Tag *
 PrevPathVisitor::unfilteredTag(const Tag *tag) const
 {
-  Search *search = sta_->search();
-  const Corners *corners = sta_->corners();
   ExceptionStateSet *unfiltered_states = nullptr;
   const ExceptionStateSet *states = tag->states();
   ExceptionStateSet::ConstIterator state_iter(states);
@@ -430,17 +428,17 @@ PrevPathVisitor::unfilteredTag(const Tag *tag) const
     ExceptionPath *except = state->exception();
     if (!except->isFilter()) {
       if (unfiltered_states == nullptr)
-	unfiltered_states = new ExceptionStateSet;
+	unfiltered_states = new ExceptionStateSet(network_);
       unfiltered_states->insert(state);
     }
   }
-  return search->findTag(tag->transition(),
-			 corners->findPathAnalysisPt(tag->pathAPIndex()),
-			 tag->clkInfo(),
-			 tag->isClock(),
-			 tag->inputDelay(),
-			 tag->isSegmentStart(),
-			 unfiltered_states, true);
+  return search_->findTag(tag->transition(),
+                          corners_->findPathAnalysisPt(tag->pathAPIndex()),
+                          tag->clkInfo(),
+                          tag->isClock(),
+                          tag->inputDelay(),
+                          tag->isSegmentStart(),
+                          unfiltered_states, true);
 }
 
 ////////////////////////////////////////////////////////////////
@@ -569,7 +567,7 @@ VertexPathIterator::findNext()
     int arrival_index;
     arrival_iter_.next(tag, arrival_index);
     if ((rf_ == nullptr
-	 || tag->trIndex() == rf_->index())
+	 || tag->rfIndex() == rf_->index())
 	&& (path_ap_ == nullptr
 	    || tag->pathAPIndex() == path_ap_->index())
 	&& (min_max_ == nullptr

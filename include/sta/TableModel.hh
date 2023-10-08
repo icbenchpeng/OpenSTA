@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,6 +17,8 @@
 #pragma once
 
 #include <string>
+#include <memory>
+
 #include "MinMax.hh"
 #include "Vector.hh"
 #include "Transition.hh"
@@ -31,6 +33,12 @@ class Unit;
 class Units;
 class Report;
 class Table;
+class OutputWaveforms;
+class Table1;
+
+typedef Vector<float> FloatSeq;
+typedef Vector<FloatSeq*> FloatTable;
+typedef Vector<Table1*> Table1Seq;
 
 TableAxisVariable
 stringTableAxisVariable(const char *variable);
@@ -46,33 +54,36 @@ public:
   GateTableModel(TableModel *delay_model,
 		 TableModel *delay_sigma_models[EarlyLate::index_count],
 		 TableModel *slew_model,
-		 TableModel *slew_sigma_models[EarlyLate::index_count]);
+		 TableModel *slew_sigma_models[EarlyLate::index_count],
+                 ReceiverModelPtr receiver_model,
+                 OutputWaveforms *output_waveforms);
   virtual ~GateTableModel();
-  virtual void gateDelay(const LibertyCell *cell,
-			 const Pvt *pvt,
-			 float in_slew,
-			 float load_cap,
-			 float related_out_cap,
-			 bool pocv_enabled,
-			 // Return values.
-			 ArcDelay &gate_delay,
-			 Slew &drvr_slew) const;
-  virtual void reportGateDelay(const LibertyCell *cell,
-			       const Pvt *pvt,
-			       float in_slew,
-			       float load_cap,
-			       float related_out_cap,
-			       bool pocv_enabled,
-			       int digits,
-			       string *result) const;
-  virtual float driveResistance(const LibertyCell *cell,
-				const Pvt *pvt) const;
+  void gateDelay(const LibertyCell *cell,
+                 const Pvt *pvt,
+                 float in_slew,
+                 float load_cap,
+                 float related_out_cap,
+                 bool pocv_enabled,
+                 // Return values.
+                 ArcDelay &gate_delay,
+                 Slew &drvr_slew) const override;
+  string reportGateDelay(const LibertyCell *cell,
+                         const Pvt *pvt,
+                         float in_slew,
+                         float load_cap,
+                         float related_out_cap,
+                         bool pocv_enabled,
+                         int digits) const override;
+  float driveResistance(const LibertyCell *cell,
+                        const Pvt *pvt) const override;
 
   const TableModel *delayModel() const { return delay_model_; }
   const TableModel *slewModel() const { return slew_model_;  }
+  ReceiverModelPtr receiverModel() const { return receiver_model_; }
+  OutputWaveforms *outputWaveforms() const { return output_waveforms_; }
   // Check the axes before making the model.
   // Return true if the model axes are supported.
-  static bool checkAxes(const Table *table);
+  static bool checkAxes(const TablePtr table);
 
 protected:
   void maxCapSlew(const LibertyCell *cell,
@@ -80,8 +91,8 @@ protected:
 		  const Pvt *pvt,
 		  float &slew,
 		  float &cap) const;
-  virtual void setIsScaled(bool is_scaled);
-  float axisValue(TableAxis *axis,
+  void setIsScaled(bool is_scaled) override;
+  float axisValue(TableAxisPtr axis,
 		  float load_cap,
 		  float in_slew,
 		  float related_out_cap) const;
@@ -92,16 +103,15 @@ protected:
 		  float in_slew,
 		  float load_cap,
 		  float related_out_cap) const;
-  void reportTableLookup(const char *result_name,
-			 const LibertyLibrary *library,
-			 const LibertyCell *cell,
-			 const Pvt *pvt,
-			 const TableModel *model,
-			 float in_slew,
-			 float load_cap,
-			 float related_out_cap,
-			 int digits,
-			 string *result) const;
+  string reportTableLookup(const char *result_name,
+                           const LibertyLibrary *library,
+                           const LibertyCell *cell,
+                           const Pvt *pvt,
+                           const TableModel *model,
+                           float in_slew,
+                           float load_cap,
+                           float related_out_cap,
+                           int digits) const;
   void findAxisValues(const TableModel *model,
 		      float in_slew,
 		      float load_cap,
@@ -110,12 +120,14 @@ protected:
 		      float &axis_value1,
 		      float &axis_value2,
 		      float &axis_value3) const;
-  static bool checkAxis(TableAxis *axis);
+  static bool checkAxis(TableAxisPtr axis);
 
   TableModel *delay_model_;
   TableModel *delay_sigma_models_[EarlyLate::index_count];
   TableModel *slew_model_;
   TableModel *slew_sigma_models_[EarlyLate::index_count];
+  ReceiverModelPtr receiver_model_;
+  OutputWaveforms *output_waveforms_;
 };
 
 class CheckTableModel : public CheckTimingModel
@@ -124,30 +136,30 @@ public:
   explicit CheckTableModel(TableModel *model,
 			   TableModel *sigma_models[EarlyLate::index_count]);
   virtual ~CheckTableModel();
-  virtual void checkDelay(const LibertyCell *cell,
-			  const Pvt *pvt,
-			  float from_slew,
-			  float to_slew,
-			  float related_out_cap,
-			  bool pocv_enabled,
-			  // Return values.
-			  ArcDelay &margin) const;
-  virtual void reportCheckDelay(const LibertyCell *cell,
-				const Pvt *pvt,
-				float from_slew,
-				const char *from_slew_annotation,
-				float to_slew,
-				float related_out_cap,
-				bool pocv_enabled,
-				int digits,
-				string *result) const;
+  void checkDelay(const LibertyCell *cell,
+                  const Pvt *pvt,
+                  float from_slew,
+                  float to_slew,
+                  float related_out_cap,
+                  bool pocv_enabled,
+                  // Return values.
+                  ArcDelay &margin) const override;
+  string reportCheckDelay(const LibertyCell *cell,
+                          const Pvt *pvt,
+                          float from_slew,
+                          const char *from_slew_annotation,
+                          float to_slew,
+                          float related_out_cap,
+                          bool pocv_enabled,
+                          int digits) const override;
+  const TableModel *model() const { return model_; }
 
   // Check the axes before making the model.
   // Return true if the model axes are supported.
-  static bool checkAxes(const Table *table);
+  static bool checkAxes(const TablePtr table);
 
 protected:
-  virtual void setIsScaled(bool is_scaled);
+  void setIsScaled(bool is_scaled) override;
   float findValue(const LibertyLibrary *library,
 		  const LibertyCell *cell,
 		  const Pvt *pvt,
@@ -162,22 +174,21 @@ protected:
 		      float &axis_value1,
 		      float &axis_value2,
 		      float &axis_value3) const;
-  float axisValue(TableAxis *axis,
+  float axisValue(TableAxisPtr axis,
 		  float load_cap,
 		  float in_slew,
 		  float related_out_cap) const;
-  void reportTableDelay(const char *result_name,
-			const LibertyLibrary *library,
-			const LibertyCell *cell,
-			const Pvt *pvt,
-			const TableModel *model,
-			float from_slew,
-			const char *from_slew_annotation,
-			float to_slew,
-			float related_out_cap,
-			int digits,
-			string *result) const;
-  static bool checkAxis(TableAxis *axis);
+  string reportTableDelay(const char *result_name,
+                          const LibertyLibrary *library,
+                          const LibertyCell *cell,
+                          const Pvt *pvt,
+                          const TableModel *model,
+                          float from_slew,
+                          const char *from_slew_annotation,
+                          float to_slew,
+                          float related_out_cap,
+                          int digits) const;
+  static bool checkAxis(TableAxisPtr axis);
 
   TableModel *model_;
   TableModel *sigma_models_[EarlyLate::index_count];
@@ -187,16 +198,20 @@ protected:
 class TableModel
 {
 public:
-  TableModel(Table *table,
+  TableModel(TablePtr table,
+             TableTemplate *tbl_template,
 	     ScaleFactorType scale_factor_type,
-	     RiseFall *rf);
-  ~TableModel();
+	     const RiseFall *rf);
   void setScaleFactorType(ScaleFactorType type);
   int order() const;
-  TableAxis *axis1() const;
-  TableAxis *axis2() const;
-  TableAxis *axis3() const;
+  TableTemplate *tblTemplate() const { return tbl_template_; }
+  TableAxisPtr axis1() const;
+  TableAxisPtr axis2() const;
+  TableAxisPtr axis3() const;
   void setIsScaled(bool is_scaled);
+  float value(size_t index1,
+              size_t index2,
+              size_t index3) const;
   // Table interpolated lookup.
   float findValue(float value1,
 		  float value2,
@@ -208,37 +223,37 @@ public:
 		  float value1,
 		  float value2,
 		  float value3) const;
-  void reportValue(const char *result_name,
-		   const LibertyLibrary *library,
-		   const LibertyCell *cell,
-		   const Pvt *pvt,
-		   float value1,
-		   const char *comment1,
-		   float value2,
-		   float value3,
-		   int digits,
-		   string *result) const;
-  void report(const Units *units,
-	      Report *report) const;
+  string reportValue(const char *result_name,
+                     const LibertyLibrary *library,
+                     const LibertyCell *cell,
+                     const Pvt *pvt,
+                     float value1,
+                     const char *comment1,
+                     float value2,
+                     float value3,
+                     const Unit *table_unit,
+                     int digits) const;
+  string report(const Units *units,
+                Report *report) const;
 
 protected:
   float scaleFactor(const LibertyLibrary *library,
 		    const LibertyCell *cell,
 		    const Pvt *pvt) const;
-  void reportPvtScaleFactor(const LibertyLibrary *library,
-			    const LibertyCell *cell,
-			    const Pvt *pvt,
-			    int digits,
-			    string *result) const;
+  string reportPvtScaleFactor(const LibertyLibrary *library,
+                              const LibertyCell *cell,
+                              const Pvt *pvt,
+                              int digits) const;
 
-  Table *table_;
+  TablePtr table_;
+  TableTemplate *tbl_template_;
   // ScaleFactorType gcc barfs if this is dcl'd.
   unsigned scale_factor_type_:scale_factor_bits;
-  unsigned tr_index_:RiseFall::index_bit_count;
+  unsigned rf_index_:RiseFall::index_bit_count;
   bool is_scaled_:1;
 };
 
-// Abstract base class for tables.
+// Abstract base class for 0, 1, 2, or 3 dimesnion float tables.
 class Table
 {
 public:
@@ -246,31 +261,34 @@ public:
   virtual ~Table() {}
   void setScaleFactorType(ScaleFactorType type);
   virtual int order() const = 0;
-  virtual TableAxis *axis1() const { return nullptr; }
-  virtual TableAxis *axis2() const { return nullptr; }
-  virtual TableAxis *axis3() const { return nullptr; }
+  virtual TableAxisPtr axis1() const { return nullptr; }
+  virtual TableAxisPtr axis2() const { return nullptr; }
+  virtual TableAxisPtr axis3() const { return nullptr; }
   void setIsScaled(bool is_scaled);
+  virtual float value(size_t axis_idx1,
+                      size_t axis_idx2,
+                      size_t axis_idx3) const = 0;
   // Table interpolated lookup.
-  virtual float findValue(float value1,
-			  float value2,
-			  float value3) const = 0;
+  virtual float findValue(float axis_value1,
+			  float axis_value2,
+			  float axis_value3) const = 0;
   // Table interpolated lookup with scale factor.
   float findValue(const LibertyLibrary *library,
 		  const LibertyCell *cell,
 		  const Pvt *pvt,
-		  float value1,
-		  float value2,
-		  float value3) const;
-  virtual void reportValue(const char *result_name,
-			   const LibertyLibrary *library,
-			   const LibertyCell *cell,
-			   const Pvt *pvt,
-			   float value1,
-			   const char *comment1,
-			   float value2,
-			   float value3,
-			   int digits,
-			   string *result) const = 0;
+		  float axis_value1,
+		  float axis_value2,
+		  float axis_value3) const;
+  virtual string reportValue(const char *result_name,
+                             const LibertyLibrary *library,
+                             const LibertyCell *cell,
+                             const Pvt *pvt,
+                             float value1,
+                             const char *comment1,
+                             float value2,
+                             float value3,
+                             const Unit *table_unit,
+                             int digits) const = 0;
   virtual void report(const Units *units,
 		      Report *report) const = 0;
 };
@@ -280,22 +298,25 @@ class Table0 : public Table
 {
 public:
   Table0(float value);
-  virtual int order() const { return 0; }
-  virtual float findValue(float value1,
-			  float value2,
-			  float value3) const;
-  virtual void reportValue(const char *result_name,
-			   const LibertyLibrary *library,
-			   const LibertyCell *cell,
-			   const Pvt *pvt,
-			   float value1,
-			   const char *comment1,
-			   float value2,
-			   float value3,
-			   int digits,
-			   string *result) const;
-  virtual void report(const Units *units,
-		      Report *report) const;
+  int order() const override { return 0; }
+  float value(size_t axis_index1,
+              size_t axis_index2,
+              size_t axis_index3) const override;
+  float findValue(float axis_value1,
+                  float axis_value2,
+                  float axis_value3) const override;
+  string reportValue(const char *result_name,
+                     const LibertyLibrary *library,
+                     const LibertyCell *cell,
+                     const Pvt *pvt,
+                     float value1,
+                     const char *comment1,
+                     float value2,
+                     float value3,
+                     const Unit *table_unit,
+                     int digits) const override;
+  void report(const Units *units,
+              Report *report) const override;
   using Table::findValue;
 
 private:
@@ -306,34 +327,48 @@ private:
 class Table1 : public Table
 {
 public:
+  Table1();
   Table1(FloatSeq *values,
-	 TableAxis *axis1,
-	 bool own_axis1);
+	 TableAxisPtr axis1);
   virtual ~Table1();
-  virtual int order() const { return 1; }
-  virtual TableAxis *axis1() const { return axis1_; }
-  float tableValue(size_t index1) const;
-  virtual float findValue(float value1,
-			  float value2,
-			  float value3) const;
-  virtual void reportValue(const char *result_name,
-			   const LibertyLibrary *library,
-			   const LibertyCell *cell,
-			   const Pvt *pvt,
-			   float value1,
-			   const char *comment1,
-			   float value2,
-			   float value3,
-			   int digits,
-			   string *result) const;
-  virtual void report(const Units *units,
-		      Report *report) const;
+  Table1(Table1 &&table);
+  Table1 &operator= (Table1 &&table);
+  int order() const override { return 1; }
+  TableAxisPtr axis1() const override { return axis1_; }
+  float value(size_t axis_index1,
+              size_t axis_index2,
+              size_t axis_index3) const override;
+  float findValue(float value1,
+                  float value2,
+                  float value3) const override;
+  string reportValue(const char *result_name,
+                     const LibertyLibrary *library,
+                     const LibertyCell *cell,
+                     const Pvt *pvt,
+                     float value1,
+                     const char *comment1,
+                     float value2,
+                     float value3,
+                     const Unit *table_unit,
+                     int digits) const override;
+  void report(const Units *units,
+              Report *report) const override;
+
+  // Table1 specific functions.
+  float value(size_t index1) const;
+  void findValue(float axis_value1,
+                 // Return values.
+                 float &value,
+                 bool &extrapolated) const;
+  float findValue(float axis_value1) const;
+  float findValueClip(float axis_value1) const;
+  float findValueClipZero(float axis_value1) const;
+  FloatSeq *values() const { return values_; }
   using Table::findValue;
 
 private:
   FloatSeq *values_;
-  TableAxis *axis1_;
-  bool own_axis1_;
+  TableAxisPtr axis1_;
 };
 
 // Two dimensional table.
@@ -341,41 +376,44 @@ class Table2 : public Table
 {
 public:
   Table2(FloatTable *values,
-	 TableAxis *axis1,
-	 bool own_axis1,
-	 TableAxis *axis2,
-	 bool own_axis2);
+	 TableAxisPtr axis1,
+	 TableAxisPtr axis2);
   virtual ~Table2();
-  virtual int order() const { return 2; }
-  TableAxis *axis1() const { return axis1_; }
-  TableAxis *axis2() const { return axis2_; }
-  float tableValue(size_t index1,
-		   size_t index2) const;
-  virtual float findValue(float value1,
-			  float value2,
-			  float value3) const;
-  virtual void reportValue(const char *result_name,
-			   const LibertyLibrary *library,
-			   const LibertyCell *cell,
-			   const Pvt *pvt,
-			   float value1,
-			   const char *comment1,
-			   float value2,
-			   float value3,
-			   int digits,
-			   string *result) const;
-  virtual void report(const Units *units,
-		      Report *report) const;
+  int order() const override { return 2; }
+  TableAxisPtr axis1() const override { return axis1_; }
+  TableAxisPtr axis2() const override { return axis2_; }
+  float value(size_t axis_index1,
+              size_t axis_index2,
+              size_t axis_index3) const override;
+  float findValue(float value1,
+                  float value2,
+                  float value3) const override;
+  string reportValue(const char *result_name,
+                     const LibertyLibrary *library,
+                     const LibertyCell *cell,
+                     const Pvt *pvt,
+                     float value1,
+                     const char *comment1,
+                     float value2,
+                     float value3,
+                     const Unit *table_unit,
+                     int digits) const override;
+  void report(const Units *units,
+              Report *report) const override;
+
+  // Table2 specific functions.
+  float value(size_t axis_index1,
+              size_t axis_index2) const;
+  FloatTable *values3() { return values_; }
+
   using Table::findValue;
 
 protected:
   FloatTable *values_;
   // Row.
-  TableAxis *axis1_;
-  bool own_axis1_;
+  TableAxisPtr axis1_;
   // Column.
-  TableAxis *axis2_;
-  bool own_axis2_;
+  TableAxisPtr axis2_;
 };
 
 // Three dimensional table.
@@ -383,38 +421,36 @@ class Table3 : public Table2
 {
 public:
   Table3(FloatTable *values,
-	 TableAxis *axis1,
-	 bool own_axis1,
-	 TableAxis *axis2,
-	 bool own_axis2,
-	 TableAxis *axis3,
-	 bool own_axis3);
-  virtual ~Table3();
-  virtual int order() const { return 3; }
-  TableAxis *axis3() const { return axis3_; }
-  float tableValue(size_t index1,
-		   size_t index2,
-		   size_t index3) const;
-  virtual float findValue(float value1,
-			  float value2,
-			  float value3) const;
-  virtual void reportValue(const char *result_name,
-			   const LibertyLibrary *library,
-			   const LibertyCell *cell,
-			   const Pvt *pvt,
-			   float value1,
-			   const char *comment1,
-			   float value2,
-			   float value3,
-			   int digits,
-			   string *result) const;
-  virtual void report(const Units *units,
-		      Report *report) const;
+	 TableAxisPtr axis1,
+	 TableAxisPtr axis2,
+	 TableAxisPtr axis3);
+  virtual ~Table3() {}
+  int order() const override { return 3; }
+  TableAxisPtr axis1() const override { return axis1_; }
+  TableAxisPtr axis2() const override { return axis2_; }
+  TableAxisPtr axis3() const override { return axis3_; }
+  float value(size_t axis_index1,
+              size_t axis_index2,
+              size_t axis_index3) const override;
+  float findValue(float value1,
+                  float value2,
+                  float value3) const override;
+  string reportValue(const char *result_name,
+                     const LibertyLibrary *library,
+                     const LibertyCell *cell,
+                     const Pvt *pvt,
+                     float value1,
+                     const char *comment1,
+                     float value2,
+                     float value3,
+                     const Unit *table_unit,
+                     int digits) const override;
+  void report(const Units *units,
+              Report *report) const override;
   using Table::findValue;
 
 private:
-  TableAxis *axis3_;
-  bool own_axis3_;
+  TableAxisPtr axis3_;
 };
 
 class TableAxis
@@ -424,14 +460,108 @@ public:
 	    FloatSeq *values);
   ~TableAxis();
   TableAxisVariable variable() const { return variable_; }
+  const char *variableString() const;
+  const Unit *unit(const Units *units);
   size_t size() const { return values_->size(); }
+  bool inBounds(float value) const;
   float axisValue(size_t index) const { return (*values_)[index]; }
   // Find the index for value such that axis[index] <= value < axis[index+1].
   size_t findAxisIndex(float value) const;
+  void findAxisIndex(float value,
+                     // Return values.
+                     size_t &index,
+                     bool &exists) const;
+  FloatSeq *values() const { return values_; }
+  float min() const { return (*values_)[0]; }
+  float max() const { return (*values_)[values_->size() - 1]; }
 
 private:
   TableAxisVariable variable_;
   FloatSeq *values_;
+};
+
+////////////////////////////////////////////////////////////////
+
+class ReceiverModel
+{
+public:
+  ReceiverModel();
+  ~ReceiverModel();
+  void setCapacitanceModel(TableModel *table_model,
+                           int index,
+                           RiseFall *rf);
+  static bool checkAxes(TablePtr table);
+
+private:
+  TableModel *capacitance_models_[2][RiseFall::index_count];
+};
+
+// Two dimensional (slew/cap) table of one dimensional time/current tables.
+class OutputWaveforms
+{
+public:
+  OutputWaveforms(TableAxisPtr slew_axis,
+                  TableAxisPtr cap_axis,
+                  const RiseFall *rf,
+                  Table1Seq &current_waveforms,
+                  Table1 *ref_times);
+  ~OutputWaveforms();
+  const RiseFall *rf() const { return rf_; }
+  TableAxisPtr slewAxis() const { return slew_axis_; }
+  TableAxisPtr capAxis() const { return cap_axis_; }
+  Table1 voltageWaveform(float in_slew,
+                         float load_cap);
+  float voltageTime(float in_slew,
+                    float load_cap,
+                    float voltage);
+  const Table1 *currentWaveform(float slew,
+                                float cap);
+  float timeCurrent(float slew,
+                    float cap,
+                    float time);
+  float voltageCurrent(float slew,
+                       float cap,
+                       float volt);
+  float referenceTime(float slew);
+  void setVdd(float vdd);
+  static bool checkAxes(TableTemplate *tbl_template);
+
+private:
+  float voltageTime1(float voltage,
+                     size_t wave_index,
+                     float cap);
+  FloatSeq *voltageTimes(size_t wave_index,
+                         float cap);
+  void findVoltages(size_t wave_index,
+                    float cap);
+  const Table1 *voltageCurrents(size_t wave_index,
+                                float cap);
+
+  // Row.
+  TableAxisPtr slew_axis_;
+  // Column.
+  TableAxisPtr cap_axis_;
+  const RiseFall *rf_;
+  Table1Seq current_waveforms_;
+  Table1Seq voltage_currents_;
+  FloatTable voltage_times_;
+  Table1 *ref_times_;
+  float vdd_;
+  static constexpr size_t voltage_waveform_step_count_ = 20;
+};
+
+class DriverWaveform
+{
+public:
+  DriverWaveform(const char *name,
+                 TablePtr waveforms);
+  ~DriverWaveform();
+  const char *name() const { return name_; }
+  Table1 waveform(float slew);
+
+private:
+  const char *name_;
+  TablePtr waveforms_;
 };
 
 } // namespace

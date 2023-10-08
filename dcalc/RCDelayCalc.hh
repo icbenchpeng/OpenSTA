@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -25,12 +25,12 @@ class RCDelayCalc : public LumpedCapDelayCalc
 {
 public:
   RCDelayCalc(StaState *sta);
-  virtual ArcDelayCalc *copy();
-  virtual void inputPortDelay(const Pin *port_pin,
-			      float in_slew,
-			      const RiseFall *rf,
-			      Parasitic *parasitic,
-			      const DcalcAnalysisPt *dcalc_ap);
+  ArcDelayCalc *copy() override;
+  void inputPortDelay(const Pin *port_pin,
+                      float in_slew,
+                      const RiseFall *rf,
+                      const Parasitic *parasitic,
+                      const DcalcAnalysisPt *dcalc_ap) override;
 
 protected:
   // Helper function for input ports driving dspf parasitic.
@@ -40,7 +40,8 @@ protected:
 			 Slew &load_slew);
 
   const LibertyCell *drvr_cell_;
-  Parasitic *drvr_parasitic_;
+  const Parasitic *drvr_parasitic_;
+  bool input_port_;
 };
 
 } // namespace

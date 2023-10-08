@@ -1,5 +1,5 @@
 # OpenSTA, Static Timing Analyzer
-# Copyright (c) 2022, Parallax Software, Inc.
+# Copyright (c) 2023, Parallax Software, Inc.
 # 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -24,7 +24,7 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.14)
 cmake_policy(SET CMP0086 NEW)
 endif()
 
-project(STA VERSION 2.3.1
+project(STA VERSION 2.4.0
   LANGUAGES CXX
 )
 
@@ -73,7 +73,7 @@ set(STA_SOURCE
   dcalc/LumpedCapDelayCalc.cc
   dcalc/NetCaps.cc
   dcalc/RCDelayCalc.cc
-  dcalc/SimpleRCDelayCalc.cc
+  dcalc/SlewDegradeDelayCalc.cc
   dcalc/UnitDelayCalc.cc
   
   graph/DelayFloat.cc
@@ -92,12 +92,12 @@ set(STA_SOURCE
   liberty/LibertyExprPvt.hh
   liberty/LibertyParser.cc
   liberty/LibertyReader.cc
+  liberty/LibertyWriter.cc
   liberty/LinearModel.cc
   liberty/Sequential.cc
   liberty/TableModel.cc
   liberty/TimingArc.cc
   liberty/TimingRole.cc
-  liberty/Transition.cc
   liberty/Units.cc
   liberty/Wireload.cc
   
@@ -116,6 +116,7 @@ set(STA_SOURCE
   parasitics/NullParasitics.cc
   parasitics/Parasitics.cc
   parasitics/ReduceParasitics.cc
+  parasitics/ReportParasiticAnnotation.cc
   parasitics/SpefNamespace.cc
   parasitics/SpefReader.cc
   parasitics/SpefReaderPvt.hh
@@ -134,8 +135,6 @@ set(STA_SOURCE
   sdc/PinPair.cc
   sdc/PortDelay.cc
   sdc/PortExtCap.cc
-  sdc/RiseFallMinMax.cc
-  sdc/RiseFallValues.cc
   sdc/Sdc.cc
   sdc/SdcGraph.cc
   sdc/SdcCmdComment.cc
@@ -163,6 +162,7 @@ set(STA_SOURCE
   search/Genclks.cc
   search/Latches.cc
   search/Levelize.cc
+  search/MakeTimingModel.cc
   search/Path.cc
   search/PathAnalysisPt.cc
   search/PathEnd.cc
@@ -173,7 +173,6 @@ set(STA_SOURCE
   search/PathRef.cc
   search/PathVertex.cc
   search/PathVertexRep.cc
-  search/Power.cc
   search/Property.cc
   search/ReportPath.cc
   search/Search.cc
@@ -188,7 +187,12 @@ set(STA_SOURCE
   search/VisitPathGroupVertices.cc
   search/WorstSlack.cc
   search/WritePathSpice.cc
-  
+
+  power/Power.cc
+  power/ReadVcdActivities.cc
+  power/Vcd.cc
+  power/VcdReader.cc
+
   util/Debug.cc
   util/DispatchQueue.cc
   util/Error.cc
@@ -200,11 +204,14 @@ set(STA_SOURCE
   util/Report.cc
   util/ReportStd.cc
   util/ReportTcl.cc
+  util/RiseFallMinMax.cc
+  util/RiseFallValues.cc
   util/Stats.cc
   util/StringSeq.cc
   util/StringSet.cc
   util/StringUtil.cc
   util/TokenParser.cc
+  util/Transition.cc
   
   verilog/VerilogReader.cc
   verilog/VerilogWriter.cc
@@ -212,21 +219,25 @@ set(STA_SOURCE
 
 # Source files.
 set(STA_TCL_FILES
+  tcl/Init.tcl
   tcl/Util.tcl
+  tcl/CmdArgs.tcl
+  tcl/CmdUtil.tcl
   tcl/Graph.tcl
   tcl/Liberty.tcl
   tcl/Link.tcl
   tcl/Network.tcl
   tcl/NetworkEdit.tcl
+  tcl/Property.tcl
   tcl/Sdc.tcl
   tcl/Search.tcl
-  tcl/Cmds.tcl
-  tcl/Variables.tcl
   tcl/Sta.tcl
-  tcl/Power.tcl
   tcl/Splash.tcl
+  tcl/Variables.tcl
+  tcl/WritePathSpice.tcl
   dcalc/DelayCalc.tcl
   parasitics/Parasitics.tcl
+  power/Power.tcl
   sdf/Sdf.tcl
   verilog/Verilog.tcl
   )
@@ -309,18 +320,20 @@ set_property(SOURCE ${STA_SWIG_FILE}
   -I${STA_HOME}/sdf
   -I${STA_HOME}/dcalc
   -I${STA_HOME}/parasitics
+  -I${STA_HOME}/power
   -I${STA_HOME}/verilog
 )
 
 set_property(SOURCE ${STA_SWIG_FILE}
   PROPERTY DEPENDS
+  ${STA_HOME}/dcalc/DelayCalc.i
+  ${STA_HOME}/parasitics/Parasitics.i
+  ${STA_HOME}/power/Power.i
+  ${STA_HOME}/sdf/Sdf.i
   ${STA_HOME}/tcl/Exception.i
   ${STA_HOME}/tcl/StaTcl.i
-  ${STA_HOME}/verilog/Verilog.i
   ${STA_HOME}/tcl/NetworkEdit.i
-  ${STA_HOME}/sdf/Sdf.i
-  ${STA_HOME}/parasitics/Parasitics.i
-  ${STA_HOME}/dcalc/DelayCalc.i
+  ${STA_HOME}/verilog/Verilog.i
 )
 
 swig_add_library(sta_swig
@@ -334,7 +347,9 @@ get_target_property(SWIG_FILES sta_swig SOURCES)
 foreach(SWIG_FILE ${SWIG_FILES})
   set_source_files_properties(${SWIG_FILE}
     PROPERTIES
-    COMPILE_OPTIONS "-Wno-cast-qual;-Wno-missing-braces"
+    # No simple way to modify the swig template that emits code full of warnings
+    # so suppress them.
+    COMPILE_OPTIONS "-Wno-cast-qual;-Wno-missing-braces;-Wno-deprecated-declarations"
   )
 endforeach()
 
@@ -381,6 +396,31 @@ add_custom_command(OUTPUT ${STA_TCL_INIT}
 # Do not use REQUIRED because it also requires TK, which is not used by OpenSTA.
 find_package(TCL)
 
+option(USE_TCL_READLINE "Use TCL readliine package")
+
+set(TCL_READLINE 0)
+# check for tclReadline
+if (USE_TCL_READLINE)
+  find_library(TCL_READLINE_LIBRARY tclreadline)
+  if (TCL_READLINE_LIBRARY)
+    message(STATUS "TCL readline: ${TCL_READLINE_LIBRARY}")
+    # Referenced by StaConfig.hh.cmake
+    set(TCL_READLINE 1)
+
+    get_filename_component(TCL_READLINE_LIB_DIR "${TCL_READLINE_LIBRARY}" PATH)
+    get_filename_component(TCL_READLINE_LIB_PARENT "${TCL_READLINE_LIB_DIR}" PATH)
+    find_file(TCL_READLINE_HEADER tclreadline.h
+      PATHS ${TCL_READLINE_LIB_PARENT}
+      PATH_SUFFIXES include
+      NO_DEFAULT_PATH
+      )
+    message(STATUS "TCL readline header: ${TCL_READLINE_HEADER}")
+    get_filename_component(TCL_READLINE_INCLUDE "${TCL_READLINE_HEADER}" PATH)
+  else()
+    message(STATUS "TCL readline: not found")
+  endif()
+endif()
+
 # Zlib
 include(FindZLIB)
 
@@ -406,7 +446,7 @@ if (USE_CUDD)
     if (CUDD_HEADER)
       get_filename_component(CUDD_INCLUDE "${CUDD_HEADER}" PATH)
       message(STATUS "CUDD header: ${CUDD_HEADER}")
-      # CUDD referenced by StaConfig.hh.cmake
+      # Referenced by StaConfig.hh.cmake
       set(CUDD 1)
     else()
       message(STATUS "CUDD header: not found")
@@ -433,7 +473,10 @@ configure_file(${STA_HOME}/util/StaConfig.hh.cmake
 # compatibility with configure
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${STA_HOME}/app)
 
-add_library(OpenSTA
+add_library(OpenSTA)
+
+target_sources(OpenSTA
+  PRIVATE
   ${STA_SOURCE}
 
   ${STA_TCL_INIT}
@@ -453,10 +496,28 @@ add_library(OpenSTA
   ${BISON_VerilogParser_OUTPUTS}
 )
 
+target_link_libraries(OpenSTA
+  ${TCL_LIBRARY}
+  ${CMAKE_THREAD_LIBS_INIT}
+  )
+
+if (TCL_READLINE_LIBRARY)
+  target_link_libraries(OpenSTA ${TCL_READLINE_LIBRARY})
+endif()
+
+if (ZLIB_LIBRARIES)
+  target_link_libraries(OpenSTA ${ZLIB_LIBRARIES})
+endif()
+
+if (CUDD_LIB)
+  target_link_libraries(OpenSTA ${CUDD_LIB})
+endif()
+
 target_include_directories(OpenSTA
   PUBLIC
   include
   ${TCL_INCLUDE_PATH}
+  ${TCL_READLINE_INCLUDE}
 
   PRIVATE
   include/sta
@@ -464,11 +525,12 @@ target_include_directories(OpenSTA
   ${CUDD_INCLUDE}
   )
 
+set(CXX_COMMON_FLAGS -Wall -Wextra -pedantic -Wcast-qual -Wredundant-decls -Wformat-security -Wp,-D_GLIBCXX_ASSERTIONS)
 target_compile_options(OpenSTA
   PRIVATE
-  $<$<CXX_COMPILER_ID:GNU>:-Wall -Wextra -pedantic -Wcast-qual -Wredundant-decls -Wformat-security>
-  $<$<CXX_COMPILER_ID:AppleClang>:-Wall -Wextra -pedantic -Wcast-qual -Wredundant-decls -Wformat-security -Wno-gnu-zero-variadic-macro-arguments>
-  $<$<CXX_COMPILER_ID:Clang>:-Wall -Wextra -pedantic -Wcast-qual -Wredundant-decls -Wformat-security -Wno-gnu-zero-variadic-macro-arguments>
+  $<$<CXX_COMPILER_ID:GNU>:${CXX_COMMON_FLAGS}>
+  $<$<CXX_COMPILER_ID:AppleClang>:${CXX_COMMON_FLAGS} -Wno-gnu-zero-variadic-macro-arguments>
+  $<$<CXX_COMPILER_ID:Clang>:${CXX_COMMON_FLAGS} -Wno-gnu-zero-variadic-macro-arguments>
   )
 
 # Disable compiler specific extensions like gnu++11.
@@ -490,17 +552,7 @@ add_executable(sta app/Main.cc)
 target_link_libraries(sta
   sta_swig
   OpenSTA
-  ${TCL_LIBRARY}
-  ${CMAKE_THREAD_LIBS_INIT}
   )
-
-if (ZLIB_LIBRARIES)
-  target_link_libraries(sta ${ZLIB_LIBRARIES})
-endif()
-
-if (CUDD_LIB)
-  target_link_libraries(sta ${CUDD_LIB})
-endif()
 
 message(STATUS "STA executable: ${STA_HOME}/app/sta")
 

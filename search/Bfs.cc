@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,8 +15,6 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "Bfs.hh"
-
-#include <limits.h>
 
 #include "Report.hh"
 #include "Debug.hh"
@@ -323,7 +321,7 @@ BfsIterator::remove(Vertex *vertex)
 BfsFwdIterator::BfsFwdIterator(BfsIndex bfs_index,
 			       SearchPred *search_pred,
 			       StaState *sta) :
-  BfsIterator(bfs_index, 0, INT_MAX, search_pred, sta)
+  BfsIterator(bfs_index, 0, level_max, search_pred, sta)
 {
 }
 
@@ -377,7 +375,7 @@ BfsFwdIterator::enqueueAdjacentVertices(Vertex *vertex,
 BfsBkwdIterator::BfsBkwdIterator(BfsIndex bfs_index,
 				 SearchPred *search_pred,
 				 StaState *sta) :
-  BfsIterator(bfs_index, INT_MAX, 0, search_pred, sta)
+  BfsIterator(bfs_index, level_max, 0, search_pred, sta)
 {
 }
 

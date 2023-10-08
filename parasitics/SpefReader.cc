@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -45,7 +45,6 @@ bool
 readSpefFile(const char *filename,
 	     Instance *instance,
 	     ParasiticAnalysisPt *ap,
-	     bool increment,
 	     bool pin_cap_included,
 	     bool keep_coupling_caps,
 	     float coupling_cap_factor,
@@ -63,7 +62,7 @@ readSpefFile(const char *filename,
   // Use zlib to uncompress gzip'd files automagically.
   gzFile stream = gzopen(filename, "rb");
   if (stream) {
-    SpefReader reader(filename, stream, instance, ap, increment,
+    SpefReader reader(filename, stream, instance, ap,
 		      pin_cap_included, keep_coupling_caps, coupling_cap_factor,
 		      reduce_to, delete_after_reduce, op_cond, corner, 
 		      cnst_min_max, quiet, report, network, parasitics);
@@ -83,7 +82,6 @@ SpefReader::SpefReader(const char *filename,
 		       gzFile stream,
 		       Instance *instance,
 		       ParasiticAnalysisPt *ap,
-		       bool increment,
 		       bool pin_cap_included,
 		       bool keep_coupling_caps,
 		       float coupling_cap_factor,
@@ -99,7 +97,6 @@ SpefReader::SpefReader(const char *filename,
   filename_(filename),
   instance_(instance),
   ap_(ap),
-  increment_(increment),
   pin_cap_included_(pin_cap_included),
   keep_coupling_caps_(keep_coupling_caps),
   reduce_to_(reduce_to),
@@ -121,6 +118,10 @@ SpefReader::SpefReader(const char *filename,
   network_(network),
   parasitics_(parasitics),
   triple_index_(0),
+  time_scale_(1.0),
+  cap_scale_(1.0),
+  res_scale_(1.0),
+  induct_scale_(1.0),
   design_flow_(nullptr),
   parasitic_(nullptr)
 {
@@ -391,7 +392,7 @@ void
 SpefReader::rspfBegin(Net *net,
 		      SpefTriple *total_cap)
 {
-  if (net && !increment_)
+  if (net)
     parasitics_->deleteParasitics(net, ap_);
   // Net total capacitance is ignored.
   delete total_cap;
@@ -407,19 +408,15 @@ SpefReader::rspfDrvrBegin(Pin *drvr_pin,
 			  SpefRspfPi *pi)
 {
   if (drvr_pin) {
-    // Incremental parasitics do not overwrite existing parasitics.
-    if (!(increment_ &&
-	  parasitics_->findPiElmore(drvr_pin, RiseFall::rise(), ap_))) {
-      float c2 = pi->c2()->value(triple_index_) * cap_scale_;
-      float rpi = pi->r1()->value(triple_index_) * res_scale_;
-      float c1 = pi->c1()->value(triple_index_) * cap_scale_;
-      // Delete pi model and elmore delays.
-      parasitics_->deleteParasitics(drvr_pin, ap_);
-      // Only one parasitic, save it under rise transition.
-      parasitic_ = parasitics_->makePiElmore(drvr_pin,
-					     RiseFall::rise(),
-					     ap_, c2, rpi, c1);
-    }
+    float c2 = pi->c2()->value(triple_index_) * cap_scale_;
+    float rpi = pi->r1()->value(triple_index_) * res_scale_;
+    float c1 = pi->c1()->value(triple_index_) * cap_scale_;
+    // Delete pi model and elmore delays.
+    parasitics_->deleteParasitics(drvr_pin, ap_);
+    // Only one parasitic, save it under rise transition.
+    parasitic_ = parasitics_->makePiElmore(drvr_pin,
+                                           RiseFall::rise(),
+                                           ap_, c2, rpi, c1);
   }
   delete pi;
 }
@@ -447,14 +444,23 @@ SpefReader::dspfBegin(Net *net,
 		      SpefTriple *total_cap)
 {
   if (net) {
-    // Incremental parasitics do not overwrite existing parasitics.
-    if (increment_
-	&& parasitics_->findParasiticNetwork(net, ap_))
-      parasitic_ = nullptr;
-    else {
+    if (network_->isTopInstance(instance_)) {
       parasitics_->deleteReducedParasitics(net, ap_);
-      parasitic_ = parasitics_->makeParasiticNetwork(net, pin_cap_included_,
-                                                     ap_);
+      parasitic_ = parasitics_->makeParasiticNetwork(net, pin_cap_included_, ap_);
+    }
+    else {
+      Net *parasitic_owner = net;
+      NetTermIterator *term_iter = network_->termIterator(net);
+      if (term_iter->hasNext()) {
+        Term *term = term_iter->next();
+        Pin *hpin = network_->pin(term);
+        parasitic_owner = network_->net(hpin);
+      }
+      delete term_iter;
+      parasitic_ = parasitics_->findParasiticNetwork(parasitic_owner, ap_);
+      if (parasitic_ == nullptr)
+        parasitic_ = parasitics_->makeParasiticNetwork(parasitic_owner,
+                                                       pin_cap_included_, ap_);
     }
     net_ = net;
   }
@@ -469,7 +475,6 @@ void
 SpefReader::dspfFinish()
 {
   if (parasitic_) {
-    // Checking "should" be done by report_annotated_parasitics.
     if (!quiet_)
       parasitics_->check(parasitic_);
     if (reduce_to_ != ReducedParasiticType::none) {
@@ -725,7 +730,7 @@ void spefFlushBuffer();
 int
 SpefParse_error(const char *msg)
 {
-  sta::spef_reader->warn(179, "%s.", msg);
   spefFlushBuffer();
+  sta::spef_reader->warn(179, "%s.", msg);
   return 0;
 }

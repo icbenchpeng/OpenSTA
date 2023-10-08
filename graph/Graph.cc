@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -168,7 +168,7 @@ Graph::makeInstanceEdges(const Instance *inst)
 }
 
 void
-Graph::makePinInstanceEdges(Pin *pin)
+Graph::makePinInstanceEdges(const Pin *pin)
 {
   const Instance *inst = network_->instance(pin);
   if (inst) {
@@ -185,15 +185,13 @@ Graph::makePortInstanceEdges(const Instance *inst,
 			     LibertyCell *cell,
 			     LibertyPort *from_to_port)
 {
-  LibertyCellTimingArcSetIterator timing_iter(cell);
-  while (timing_iter.hasNext()) {
-    TimingArcSet *arc_set = timing_iter.next();
+  for (TimingArcSet *arc_set : cell->timingArcSets()) {
     LibertyPort *from_port = arc_set->from();
     LibertyPort *to_port = arc_set->to();
     if ((from_to_port == nullptr
 	 || from_port == from_to_port
 	 || to_port == from_to_port)
-	&& filterEdge(arc_set)) {
+	&& from_port) {
       Pin *from_pin = network_->findPin(inst, from_port);
       Pin *to_pin = network_->findPin(inst, to_port);
       if (from_pin && to_pin) {
@@ -234,7 +232,7 @@ Graph::makePortInstanceEdges(const Instance *inst,
 void
 Graph::makeWireEdges()
 {
-  PinSet visited_drvrs;
+  PinSet visited_drvrs(network_);
   LeafInstanceIterator *inst_iter = network_->leafInstanceIterator();
   while (inst_iter->hasNext()) {
     Instance *inst = inst_iter->next();
@@ -245,7 +243,7 @@ Graph::makeWireEdges()
 }
 
 void
-Graph::makeInstDrvrWireEdges(Instance *inst,
+Graph::makeInstDrvrWireEdges(const Instance *inst,
 			     PinSet &visited_drvrs)
 {
   InstancePinIterator *pin_iter = network_->pinIterator(inst);
@@ -259,10 +257,10 @@ Graph::makeInstDrvrWireEdges(Instance *inst,
 }
 
 void
-Graph::makeWireEdgesFromPin(Pin *drvr_pin)
+Graph::makeWireEdgesFromPin(const Pin *drvr_pin)
 {
   PinSeq loads, drvrs;
-  PinSet visited_drvrs;
+  PinSet visited_drvrs(network_);
   FindNetDrvrLoads visitor(drvr_pin, visited_drvrs, loads, drvrs, network_);
   network_->visitConnectedPins(drvr_pin, visitor);
 
@@ -273,7 +271,7 @@ Graph::makeWireEdgesFromPin(Pin *drvr_pin)
 }
 
 void
-Graph::makeWireEdgesFromPin(Pin *drvr_pin,
+Graph::makeWireEdgesFromPin(const Pin *drvr_pin,
 			    PinSet &visited_drvrs)
 {
   // Find all drivers and loads on the net to avoid N*M run time
@@ -291,7 +289,7 @@ Graph::makeWireEdgesFromPin(Pin *drvr_pin,
 }
 
 void
-Graph::makeWireEdgesToPin(Pin *to_pin)
+Graph::makeWireEdgesToPin(const Pin *to_pin)
 {
   PinSet *drvrs = network_->drivers(to_pin);
   if (drvrs) {
@@ -308,8 +306,8 @@ public:
   MakeEdgesThruHierPin(Graph *graph);
 
 private:
-  virtual void visit(Pin *drvr,
-		     Pin *load);
+  virtual void visit(const Pin *drvr,
+		     const Pin *load);
 
   Graph *graph_;
 };
@@ -321,22 +319,22 @@ MakeEdgesThruHierPin::MakeEdgesThruHierPin(Graph *graph) :
 }
 
 void
-MakeEdgesThruHierPin::visit(Pin *drvr,
-			    Pin *load)
+MakeEdgesThruHierPin::visit(const Pin *drvr,
+			    const Pin *load)
 {
   graph_->makeWireEdge(drvr, load);
 }
 
 void
-Graph::makeWireEdgesThruPin(Pin *hpin)
+Graph::makeWireEdgesThruPin(const Pin *hpin)
 {
   MakeEdgesThruHierPin visitor(this);
   visitDrvrLoadsThruHierPin(hpin, network_, &visitor);
 }
 
 void
-Graph::makeWireEdge(Pin *from_pin,
-		    Pin *to_pin)
+Graph::makeWireEdge(const Pin *from_pin,
+		    const Pin *to_pin)
 {
   TimingArcSet *arc_set = TimingArcSet::wireTimingArcSet();
   Vertex *from_vertex, *from_bidirect_drvr_vertex;
@@ -875,9 +873,7 @@ Graph::removeDelayAnnotated(Edge *edge)
 {
   edge->setDelayAnnotationIsIncremental(false);
   TimingArcSet *arc_set = edge->timingArcSet();
-  TimingArcSetArcIterator arc_iter(arc_set);
-  while (arc_iter.hasNext()) {
-    TimingArc *arc = arc_iter.next();
+  for (TimingArc *arc : arc_set->arcs()) {
     for (DcalcAPIndex ap_index = 0; ap_index < ap_count_; ap_index++) {
       setArcDelayAnnotated(edge, arc, ap_index, false);
     }
@@ -888,9 +884,7 @@ bool
 Graph::delayAnnotated(Edge *edge)
 {
   TimingArcSet *arc_set = edge->timingArcSet();
-  TimingArcSetArcIterator arc_iter(arc_set);
-  while (arc_iter.hasNext()) {
-    TimingArc *arc = arc_iter.next();
+  for (TimingArc *arc : arc_set->arcs()) {
     for (DcalcAPIndex ap_index = 0; ap_index < ap_count_; ap_index++) {
       if (arcDelayAnnotated(edge, arc, ap_index))
 	return true;
@@ -1563,8 +1557,8 @@ class FindEdgesThruHierPinVisitor : public HierPinThruVisitor
 public:
   FindEdgesThruHierPinVisitor(EdgeSet &edges,
 			      Graph *graph);
-  virtual void visit(Pin *drvr,
-		     Pin *load);
+  virtual void visit(const Pin *drvr,
+		     const Pin *load);
   
 protected:
   EdgeSet &edges_;
@@ -1580,8 +1574,8 @@ FindEdgesThruHierPinVisitor::FindEdgesThruHierPinVisitor(EdgeSet &edges,
 }
 
 void
-FindEdgesThruHierPinVisitor::visit(Pin *drvr,
-				   Pin *load)
+FindEdgesThruHierPinVisitor::visit(const Pin *drvr,
+				   const Pin *load)
 {
   Vertex *drvr_vertex = graph_->pinDrvrVertex(drvr);
   Vertex *load_vertex = graph_->pinLoadVertex(load);

@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -125,24 +125,5 @@ private:
   static MinMaxAll max_;
   static MinMaxAll all_;
 };
-
-////////////////////////////////////////////////////////////////
-
-// Obsolete. Use range iteration.
-class MinMaxIterator : public Iterator<MinMax*>
-{
-public:
-  MinMaxIterator() : index_(0), index_max_(MinMax::index_max) {}
-  explicit MinMaxIterator(const MinMaxAll *min_max);
-  bool hasNext() { return index_ <= index_max_; }
-  MinMax *next()
-  { return (index_++ == 0) ? MinMax::min() : MinMax::max(); }
-
-private:
-  int index_;
-  int index_max_;
-};
-
-typedef MinMaxIterator EarlyLateIterator;
 
 } // namespace

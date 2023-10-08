@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -73,7 +73,7 @@ public:
 	       float &pin_cap,
 	       float &wire_cap,
 	       float &fanout,
-	       bool &has_set_load);
+	       bool &has_net_load);
   void findCaps(const GraphDelayCalc1 *dcalc,
 		const Sdc *sdc);
 
@@ -162,7 +162,7 @@ MultiDrvrNet::netCaps(const RiseFall *drvr_rf,
 		      float &pin_cap,
 		      float &wire_cap,
 		      float &fanout,
-		      bool &has_set_load)
+		      bool &has_net_load)
 {
   int index = dcalc_ap->index() * RiseFall::index_count
     + drvr_rf->index();
@@ -170,7 +170,7 @@ MultiDrvrNet::netCaps(const RiseFall *drvr_rf,
   pin_cap = net_caps.pinCap();
   wire_cap = net_caps.wireCap();
   fanout = net_caps.fanout();
-  has_set_load = net_caps.hasSetLoad();
+  has_net_load = net_caps.hasSetLoad();
 }
 
 void
@@ -191,11 +191,11 @@ MultiDrvrNet::findCaps(const GraphDelayCalc1 *dcalc,
       int index = ap_index * RiseFall::index_count + drvr_rf_index;
       NetCaps &net_caps = net_caps_[index];
       float pin_cap, wire_cap, fanout;
-      bool has_set_load;
+      bool has_net_load;
       // Find pin and external pin/wire capacitance.
       sdc->connectedCap(drvr_pin, drvr_rf, op_cond, corner, min_max,
-			pin_cap, wire_cap, fanout, has_set_load);
-      net_caps.init(pin_cap, wire_cap, fanout, has_set_load);
+			pin_cap, wire_cap, fanout, has_net_load);
+      net_caps.init(pin_cap, wire_cap, fanout, has_net_load);
     }
   }
 }
@@ -452,7 +452,7 @@ public:
   FindNetDrvrs(PinSet &drvr_pins,
 	       const Network *network,
 	       const Graph *graph);
-  virtual void operator()(Pin *pin);
+  virtual void operator()(const Pin *pin);
 
 protected:
   PinSet &drvr_pins_;
@@ -470,7 +470,7 @@ FindNetDrvrs::FindNetDrvrs(PinSet &drvr_pins,
 }
 
 void
-FindNetDrvrs::operator()(Pin *pin)
+FindNetDrvrs::operator()(const Pin *pin)
 {
   Vertex *vertex = graph_->pinDrvrVertex(pin);
   if (isLeafDriver(pin, network_)
@@ -491,7 +491,7 @@ GraphDelayCalc1::ensureMultiDrvrNetsFound()
 	Vertex *drvr_vertex = graph_->pinDrvrVertex(pin);
 	if (network_->isDriver(pin)
 	    && !multi_drvr_net_map_.hasKey(drvr_vertex)) {
-	  PinSet drvr_pins;
+	  PinSet drvr_pins(network_);
 	  FindNetDrvrs visitor(drvr_pins, network_, graph_);
 	  network_->visitConnectedPins(pin, visitor);
 	  if (drvr_pins.size() > 1)
@@ -515,7 +515,7 @@ GraphDelayCalc1::makeMultiDrvrNet(PinSet &drvr_pins)
   Vertex *max_drvr = nullptr;
   PinSet::Iterator pin_iter(drvr_pins);
   while (pin_iter.hasNext()) {
-    Pin *pin = pin_iter.next();
+    const Pin *pin = pin_iter.next();
     Vertex *drvr_vertex = graph_->pinDrvrVertex(pin);
     debugPrint(debug_, "delay_calc", 3, " %s",
                network_->pathName(pin));
@@ -581,8 +581,8 @@ GraphDelayCalc1::seedDrvrSlew(Vertex *drvr_vertex,
     for (auto dcalc_ap : corners_->dcalcAnalysisPts()) {
       if (drive) {
 	const MinMax *cnst_min_max = dcalc_ap->constraintMinMax();
-	LibertyCell *drvr_cell;
-	LibertyPort *from_port, *to_port;
+	const LibertyCell *drvr_cell;
+	const LibertyPort *from_port, *to_port;
 	float *from_slews;
 	drive->driveCell(tr, cnst_min_max, drvr_cell, from_port,
 			 from_slews, to_port);
@@ -705,22 +705,18 @@ GraphDelayCalc1::seedLoadSlew(Vertex *vertex)
 // defined in the cell that has a timing group to the output port
 // is used.  Not exactly reasonable, but it's compatible.
 LibertyPort *
-GraphDelayCalc1::driveCellDefaultFromPort(LibertyCell *cell,
-					  LibertyPort *to_port)
+GraphDelayCalc1::driveCellDefaultFromPort(const LibertyCell *cell,
+					  const LibertyPort *to_port)
 {
   LibertyPort *from_port = 0;
   int from_port_index = 0;
-  LibertyCellTimingArcSetIterator set_iter(cell);
-  while (set_iter.hasNext()) {
-    TimingArcSet *arc_set = set_iter.next();
-    if (arc_set->to() == to_port) {
-      LibertyPort *set_from_port = arc_set->from();
-      int set_from_port_index = findPortIndex(cell, set_from_port);
-      if (from_port == nullptr
-	  || set_from_port_index < from_port_index) {
-	from_port = set_from_port;
-	from_port_index = set_from_port_index;
-      }
+  for (TimingArcSet *arc_set : cell->timingArcSets(nullptr, to_port)) {
+    LibertyPort *set_from_port = arc_set->from();
+    int set_from_port_index = findPortIndex(cell, set_from_port);
+    if (from_port == nullptr
+        || set_from_port_index < from_port_index) {
+      from_port = set_from_port;
+      from_port_index = set_from_port_index;
     }
   }
   return from_port;
@@ -728,8 +724,8 @@ GraphDelayCalc1::driveCellDefaultFromPort(LibertyCell *cell,
 
 // Find the index that port is defined in cell.
 int
-GraphDelayCalc1::findPortIndex(LibertyCell *cell,
-			       LibertyPort *port)
+GraphDelayCalc1::findPortIndex(const LibertyCell *cell,
+			       const LibertyPort *port)
 {
   int index = 0;
   LibertyCellPortIterator port_iter(cell);
@@ -744,31 +740,24 @@ GraphDelayCalc1::findPortIndex(LibertyCell *cell,
 }
 
 void
-GraphDelayCalc1::findInputDriverDelay(LibertyCell *drvr_cell,
+GraphDelayCalc1::findInputDriverDelay(const LibertyCell *drvr_cell,
 				      const Pin *drvr_pin,
 				      Vertex *drvr_vertex,
 				      const RiseFall *rf,
-				      LibertyPort *from_port,
+				      const LibertyPort *from_port,
 				      float *from_slews,
-				      LibertyPort *to_port,
-				      DcalcAnalysisPt *dcalc_ap)
+				      const LibertyPort *to_port,
+				      const DcalcAnalysisPt *dcalc_ap)
 {
   debugPrint(debug_, "delay_calc", 2, "  driver cell %s %s",
              drvr_cell->name(),
              rf->asString());
-  LibertyCellTimingArcSetIterator set_iter(drvr_cell);
-  while (set_iter.hasNext()) {
-    TimingArcSet *arc_set = set_iter.next();
-    if (arc_set->from() == from_port
-	&& arc_set->to() == to_port) {
-      TimingArcSetArcIterator arc_iter(arc_set);
-      while (arc_iter.hasNext()) {
-	TimingArc *arc = arc_iter.next();
-	if (arc->toEdge()->asRiseFall() == rf) {
-	  float from_slew = from_slews[arc->fromEdge()->index()];
-	  findInputArcDelay(drvr_cell, drvr_pin, drvr_vertex,
-			    arc, from_slew, dcalc_ap);
-	}
+  for (TimingArcSet *arc_set : drvr_cell->timingArcSets(from_port, to_port)) {
+    for (TimingArc *arc : arc_set->arcs()) {
+      if (arc->toEdge()->asRiseFall() == rf) {
+        float from_slew = from_slews[arc->fromEdge()->index()];
+        findInputArcDelay(drvr_cell, drvr_pin, drvr_vertex,
+                          arc, from_slew, dcalc_ap);
       }
     }
   }
@@ -778,12 +767,12 @@ GraphDelayCalc1::findInputDriverDelay(LibertyCell *drvr_cell,
 // delay minus the intrinsic delay.  Driving cell delays are annotated
 // to the wire arcs from the input port pin to the load pins.
 void
-GraphDelayCalc1::findInputArcDelay(LibertyCell *drvr_cell,
+GraphDelayCalc1::findInputArcDelay(const LibertyCell *drvr_cell,
 				   const Pin *drvr_pin,
 				   Vertex *drvr_vertex,
-				   TimingArc *arc,
+				   const TimingArc *arc,
 				   float from_slew,
-				   DcalcAnalysisPt *dcalc_ap)
+				   const DcalcAnalysisPt *dcalc_ap)
 {
   debugPrint(debug_, "delay_calc", 3, "  %s %s -> %s %s (%s)",
              arc->from()->name(),
@@ -1016,9 +1005,7 @@ GraphDelayCalc1::findDriverEdgeDelays(LibertyCell *drvr_cell,
     const Pvt *pvt = sdc_->pvt(drvr_inst, dcalc_ap->constraintMinMax());
     if (pvt == nullptr)
       pvt = dcalc_ap->operatingConditions();
-    TimingArcSetArcIterator arc_iter(arc_set);
-    while (arc_iter.hasNext()) {
-      TimingArc *arc = arc_iter.next();
+    for (TimingArc *arc : arc_set->arcs()) {
       const RiseFall *rf = arc->toEdge()->asRiseFall();
       Parasitic *parasitic = arc_delay_calc->findParasitic(drvr_pin, rf,
 							   dcalc_ap);
@@ -1075,7 +1062,7 @@ GraphDelayCalc1::loadCap(const Pin *drvr_pin,
 
 float
 GraphDelayCalc1::loadCap(const Pin *drvr_pin,
-			 Parasitic *drvr_parasitic,
+			 const Parasitic *drvr_parasitic,
 			 const RiseFall *rf,
 			 const DcalcAnalysisPt *dcalc_ap) const
 {
@@ -1085,49 +1072,49 @@ GraphDelayCalc1::loadCap(const Pin *drvr_pin,
 float
 GraphDelayCalc1::loadCap(const Pin *drvr_pin,
 			 MultiDrvrNet *multi_drvr,
-			 Parasitic *drvr_parasitic,
+			 const Parasitic *drvr_parasitic,
 			 const RiseFall *rf,
 			 const DcalcAnalysisPt *dcalc_ap) const
 {
   float pin_cap, wire_cap;
-  bool has_set_load;
+  bool has_net_load;
   float fanout;
   if (multi_drvr)
     multi_drvr->netCaps(rf, dcalc_ap,
-			pin_cap, wire_cap, fanout, has_set_load);
+			pin_cap, wire_cap, fanout, has_net_load);
   else
     netCaps(drvr_pin, rf, dcalc_ap,
-	    pin_cap, wire_cap, fanout, has_set_load);
-  loadCap(drvr_parasitic, has_set_load, pin_cap, wire_cap);
+	    pin_cap, wire_cap, fanout, has_net_load);
+  loadCap(drvr_parasitic, has_net_load, pin_cap, wire_cap);
   return wire_cap + pin_cap;
 }
 
 void
 GraphDelayCalc1::loadCap(const Pin *drvr_pin,
-			 Parasitic *drvr_parasitic,
+			 const Parasitic *drvr_parasitic,
 			 const RiseFall *rf,
 			 const DcalcAnalysisPt *dcalc_ap,
 			 // Return values.
 			 float &pin_cap,
 			 float &wire_cap) const
 {
-  bool has_set_load;
+  bool has_net_load;
   float fanout;
   // Find pin and external pin/wire capacitance.
   netCaps(drvr_pin, rf, dcalc_ap,
-	  pin_cap, wire_cap, fanout, has_set_load);
-  loadCap(drvr_parasitic, has_set_load, pin_cap, wire_cap);
+	  pin_cap, wire_cap, fanout, has_net_load);
+  loadCap(drvr_parasitic, has_net_load, pin_cap, wire_cap);
 }
 
 void
-GraphDelayCalc1::loadCap(Parasitic *drvr_parasitic,
-			 bool has_set_load,
+GraphDelayCalc1::loadCap(const Parasitic *drvr_parasitic,
+			 bool has_net_load,
 			 // Return values.
 			 float &pin_cap,
 			 float &wire_cap) const
 {
-  // set_load has precidence over parasitics.
-  if (!has_set_load && drvr_parasitic) {
+  // set_load net has precidence over parasitics.
+  if (!has_net_load && drvr_parasitic) {
     if (parasitics_->isParasiticNetwork(drvr_parasitic))
       wire_cap += parasitics_->capacitance(drvr_parasitic);
     else {
@@ -1151,23 +1138,23 @@ GraphDelayCalc1::netCaps(const Pin *drvr_pin,
 			 float &pin_cap,
 			 float &wire_cap,
 			 float &fanout,
-			 bool &has_set_load) const
+			 bool &has_net_load) const
 {
-  MultiDrvrNet *multi_drvr = 0;
+  MultiDrvrNet *multi_drvr = nullptr;
   if (graph_) {
     Vertex *drvr_vertex = graph_->pinDrvrVertex(drvr_pin);
     multi_drvr = multiDrvrNet(drvr_vertex);
   }
   if (multi_drvr)
     multi_drvr->netCaps(rf, dcalc_ap,
-			pin_cap, wire_cap, fanout, has_set_load);
+			pin_cap, wire_cap, fanout, has_net_load);
   else {
     const OperatingConditions *op_cond = dcalc_ap->operatingConditions();
     const Corner *corner = dcalc_ap->corner();
     const MinMax *min_max = dcalc_ap->constraintMinMax();
     // Find pin and external pin/wire capacitance.
     sdc_->connectedCap(drvr_pin, rf, op_cond, corner, min_max,
-		       pin_cap, wire_cap, fanout, has_set_load);
+		       pin_cap, wire_cap, fanout, has_net_load);
   }
 }
 
@@ -1282,12 +1269,12 @@ GraphDelayCalc1::findArcDelay(LibertyCell *drvr_cell,
     ArcDelay gate_delay;
     Slew gate_slew;
     if (multi_drvr
-	&& network_->direction(drvr_pin)->isOutput())
-      multiDrvrGateDelay(multi_drvr, drvr_cell, drvr_pin, arc,
-			 pvt, dcalc_ap, from_slew, drvr_parasitic,
-			 related_out_cap,
-			 arc_delay_calc,
-			 gate_delay, gate_slew);
+        && arc->to()->direction()->isOutput())
+      parallelGateDelay(multi_drvr, drvr_cell, drvr_pin, arc,
+                        pvt, dcalc_ap, from_slew, drvr_parasitic,
+                        related_out_cap,
+                        arc_delay_calc,
+                        gate_delay, gate_slew);
     else {
       float load_cap = loadCap(drvr_pin, multi_drvr, drvr_parasitic,
 			       drvr_rf, dcalc_ap);
@@ -1325,19 +1312,19 @@ GraphDelayCalc1::findArcDelay(LibertyCell *drvr_cell,
 }
 
 void
-GraphDelayCalc1::multiDrvrGateDelay(MultiDrvrNet *multi_drvr,
-				    LibertyCell *drvr_cell,
-				    const Pin *drvr_pin,
-				    TimingArc *arc,
-				    const Pvt *pvt,
-				    const DcalcAnalysisPt *dcalc_ap,
-				    const Slew from_slew,
-				    Parasitic *drvr_parasitic,
-				    float related_out_cap,
-				    ArcDelayCalc *arc_delay_calc,
-				    // Return values.
-				    ArcDelay &gate_delay,
-				    Slew &gate_slew)
+GraphDelayCalc1::parallelGateDelay(MultiDrvrNet *multi_drvr,
+                                   LibertyCell *drvr_cell,
+                                   const Pin *drvr_pin,
+                                   TimingArc *arc,
+                                   const Pvt *pvt,
+                                   const DcalcAnalysisPt *dcalc_ap,
+                                   const Slew from_slew,
+                                   Parasitic *drvr_parasitic,
+                                   float related_out_cap,
+                                   ArcDelayCalc *arc_delay_calc,
+                                   // Return values.
+                                   ArcDelay &gate_delay,
+                                   Slew &gate_slew)
 {
   ArcDelay intrinsic_delay;
   Slew intrinsic_slew;
@@ -1387,9 +1374,7 @@ GraphDelayCalc1::findMultiDrvrGateDelay(MultiDrvrNet *multi_drvr,
 	Edge *edge1 = edge_iter.next();
 	TimingArcSet *arc_set1 = edge1->timingArcSet();
 	const LibertyPort *related_out_port = arc_set1->relatedOut();
-	TimingArcSetArcIterator arc_iter(arc_set1);
-	while (arc_iter.hasNext()) {
-	  TimingArc *arc1 = arc_iter.next();
+        for (TimingArc *arc1 : arc_set1->arcs()) {
 	  RiseFall *drvr_rf1 = arc1->toEdge()->asRiseFall();
 	  if (drvr_rf1 == drvr_rf) {
 	    Vertex *from_vertex1 = edge1->from(graph_);
@@ -1529,9 +1514,7 @@ GraphDelayCalc1::findCheckEdgeDelays(Edge *edge,
              network_->portName(from_vertex->pin()),
              network_->portName(to_pin));
   bool delay_changed = false;
-  TimingArcSetArcIterator arc_iter(arc_set);
-  while (arc_iter.hasNext()) {
-    TimingArc *arc = arc_iter.next();
+  for (TimingArc *arc : arc_set->arcs()) {
     RiseFall *from_rf = arc->fromEdge()->asRiseFall();
     RiseFall *to_rf = arc->toEdge()->asRiseFall();
     if (from_rf && to_rf) {
@@ -1646,7 +1629,7 @@ GraphDelayCalc1::ceff(Edge *edge,
 
 ////////////////////////////////////////////////////////////////
 
-string *
+string
 GraphDelayCalc1::reportDelayCalc(Edge *edge,
 				 TimingArc *arc,
 				 const Corner *corner,
@@ -1660,7 +1643,7 @@ GraphDelayCalc1::reportDelayCalc(Edge *edge,
   Instance *inst = network_->instance(to_pin);
   LibertyCell *cell = network_->libertyCell(inst);
   TimingArcSet *arc_set = edge->timingArcSet();
-  string *result = new string;
+  string result;
   DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(min_max);
   const Pvt *pvt = sdc_->pvt(inst, dcalc_ap->constraintMinMax());
   if (pvt == nullptr)
@@ -1685,19 +1668,19 @@ GraphDelayCalc1::reportDelayCalc(Edge *edge,
       const Slew &to_slew = graph_->slew(to_vertex, to_rf, slew_index);
       bool from_ideal_clk = clk_network_->isIdealClock(from_vertex->pin());
       const char *from_slew_annotation = from_ideal_clk ? " (ideal clock)" : nullptr;
-      arc_delay_calc_->reportCheckDelay(cell, arc, from_slew, from_slew_annotation,
-					to_slew, related_out_cap, pvt, dcalc_ap,
-					digits, result);
+      result = arc_delay_calc_->reportCheckDelay(cell, arc, from_slew,
+                                                 from_slew_annotation, to_slew,
+                                                 related_out_cap, pvt, dcalc_ap,
+                                                 digits);
     }
     else {
       Parasitic *to_parasitic =
 	arc_delay_calc_->findParasitic(to_pin, to_rf, dcalc_ap);
       const Slew &from_slew = edgeFromSlew(from_vertex, from_rf, edge, dcalc_ap);
       float load_cap = loadCap(to_pin, to_parasitic, to_rf, dcalc_ap);
-      arc_delay_calc_->reportGateDelay(cell, arc,
-				       from_slew, load_cap, to_parasitic,
-				       related_out_cap, pvt, dcalc_ap,
-				       digits, result);
+      result = arc_delay_calc_->reportGateDelay(cell, arc,
+                                                from_slew, load_cap, to_parasitic,
+                                                related_out_cap, pvt, dcalc_ap, digits);
     }
     arc_delay_calc_->finishDrvrPin();
   }

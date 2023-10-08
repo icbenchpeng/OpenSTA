@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -19,6 +19,7 @@
 #include "FuncExpr.hh"
 #include "TableModel.hh"
 #include "Liberty.hh"
+#include "Units.hh"
 
 namespace sta {
 
@@ -138,22 +139,23 @@ InternalPowerModel::power(const LibertyCell *cell,
     return 0.0;
 }
 
-void
+string
 InternalPowerModel::reportPower(const LibertyCell *cell,
 				const Pvt *pvt,
 				float in_slew,
 				float load_cap,
-				int digits,
-				string *result) const
+				int digits) const
 {
   if (model_) {
     float axis_value1, axis_value2, axis_value3;
     findAxisValues(in_slew, load_cap,
 		   axis_value1, axis_value2, axis_value3);
     const LibertyLibrary *library = cell->libertyLibrary();
-    model_->reportValue("Power", library, cell, pvt,
-			axis_value1, nullptr, axis_value2, axis_value3, digits, result);
+    return model_->reportValue("Power", library, cell, pvt,
+                               axis_value1, nullptr, axis_value2, axis_value3,
+                               library->units()->powerUnit(), digits);
   }
+  return "";
 }
 
 void
@@ -194,7 +196,7 @@ InternalPowerModel::findAxisValues(float in_slew,
 }
 
 float
-InternalPowerModel::axisValue(TableAxis *axis,
+InternalPowerModel::axisValue(TableAxisPtr axis,
 			      float in_slew,
 			      float load_cap) const
 {
@@ -212,9 +214,9 @@ InternalPowerModel::axisValue(TableAxis *axis,
 bool
 InternalPowerModel::checkAxes(const TableModel *model)
 {
-  TableAxis *axis1 = model->axis1();
-  TableAxis *axis2 = model->axis2();
-  TableAxis *axis3 = model->axis3();
+  const TableAxisPtr axis1 = model->axis1();
+  const TableAxisPtr axis2 = model->axis2();
+  const TableAxisPtr axis3 = model->axis3();
   bool axis_ok = true;
   if (axis1)
     axis_ok &= checkAxis(model->axis1());
@@ -225,7 +227,7 @@ InternalPowerModel::checkAxes(const TableModel *model)
 }
 
 bool
-InternalPowerModel::checkAxis(TableAxis *axis)
+InternalPowerModel::checkAxis(TableAxisPtr axis)
 {
   TableAxisVariable var = axis->variable();
   return var == TableAxisVariable::constrained_pin_transition

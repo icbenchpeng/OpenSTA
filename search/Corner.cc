@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -467,10 +467,10 @@ Corner::addLiberty(LibertyLibrary *lib,
   liberty_[min_max->index()].push_back(lib);
 }
 
-LibertySeq *
-Corner::libertyLibraries(const MinMax *min_max)
+const LibertySeq &
+Corner::libertyLibraries(const MinMax *min_max) const
 {
-  return &liberty_[min_max->index()];
+  return liberty_[min_max->index()];
 }
 
 int

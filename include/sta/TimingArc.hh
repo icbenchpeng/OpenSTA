@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include "Vector.hh"
 #include "Transition.hh"
 #include "Delay.hh"
@@ -25,8 +27,6 @@ namespace sta {
 
 class TimingArcAttrs;
 class WireTimingArc;
-class WireTimingArcSetArcIterator;
-class TimingArcSetArcIterator;
 
 typedef int TimingArcIndex;
 typedef Vector<TimingArc*> TimingArcSeq;
@@ -87,8 +87,8 @@ class TimingArcAttrs
 {
 public:
   TimingArcAttrs();
+  TimingArcAttrs(TimingSense sense);
   virtual ~TimingArcAttrs();
-  void deleteContents();
   TimingType timingType() const { return timing_type_; }
   void setTimingType(TimingType type);
   TimingSense timingSense() const { return timing_sense_; }
@@ -105,8 +105,8 @@ public:
   void setModeName(const char *name);
   const char *modeValue() const { return mode_value_; }
   void setModeValue(const char *value);
-  TimingModel *model(RiseFall *rf) const;
-  void setModel(RiseFall *rf,
+  TimingModel *model(const RiseFall *rf) const;
+  void setModel(const RiseFall *rf,
 		TimingModel *model);
   float ocvArcDepth() const { return ocv_arc_depth_; }
   void setOcvArcDepth(float depth);
@@ -137,7 +137,7 @@ public:
 	       LibertyPort *to,
 	       LibertyPort *related_out,
 	       TimingRole *role,
-	       TimingArcAttrs *attrs);
+	       TimingArcAttrsPtr attrs);
   virtual ~TimingArcSet();
   LibertyCell *libertyCell() const;
   LibertyPort *from() const { return from_; }
@@ -154,27 +154,26 @@ public:
   void arcsFrom(const RiseFall *from_rf,
 		// Return values.
 		TimingArc *&arc1,
-		TimingArc *&arc2);
+		TimingArc *&arc2) const;
+  TimingArc *arcTo(const RiseFall *to_rf) const;
   const TimingArcSeq &arcs() const { return arcs_; }
-  // Use the TimingArcSetArcIterator(arc_set) constructor instead.
-  TimingArcSetArcIterator *timingArcIterator() __attribute__ ((deprecated));
   TimingArcIndex addTimingArc(TimingArc *arc);
   void deleteTimingArc(TimingArc *arc);
   TimingArc *findTimingArc(unsigned arc_index);
   void setRole(TimingRole *role);
-  FuncExpr *cond() const { return cond_; }
+  FuncExpr *cond() const { return attrs_->cond(); }
   // Cond default is the timing arcs with no condition when there are
   // other conditional timing arcs between the same pins.
   bool isCondDefault() const { return is_cond_default_; }
   void setIsCondDefault(bool is_default);
   // SDF IOPATHs match sdfCond.
   // sdfCond (IOPATH) reuses sdfCondStart (timing check) variable.
-  const char *sdfCond() const { return sdf_cond_start_; }
+  const char *sdfCond() const { return attrs_->sdfCondStart(); }
   // SDF timing checks match sdfCondStart/sdfCondEnd.
-  const char *sdfCondStart() const { return sdf_cond_start_; }
-  const char *sdfCondEnd() const { return sdf_cond_end_; }
-  const char *modeName() const { return mode_name_; }
-  const char *modeValue() const { return mode_value_; }
+  const char *sdfCondStart() const { return attrs_->sdfCondStart(); }
+  const char *sdfCondEnd() const { return attrs_->sdfCondEnd(); }
+  const char *modeName() const { return attrs_->modeName(); }
+  const char *modeValue() const { return attrs_->modeValue(); }
   // Timing arc set index in cell.
   TimingArcIndex index() const { return index_; }
   bool isDisabledConstraint() const { return is_disabled_constraint_; }
@@ -196,33 +195,25 @@ public:
   static int wireArcCount() { return 2; }
 
 protected:
-  void init(LibertyCell *cell);
-  TimingArcSet(TimingRole *role);
+  TimingArcSet(TimingRole *role,
+               TimingArcAttrsPtr attrs);
 
   LibertyPort *from_;
   LibertyPort *to_;
   LibertyPort *related_out_;
   TimingRole *role_;
+  // TimingArcAttrs are shared by TimingArcSets in a bus with timing groups. 
+  TimingArcAttrsPtr attrs_;
   TimingArcSeq arcs_;
-  FuncExpr *cond_;
   bool is_cond_default_;
-  const char *sdf_cond_start_;
-  const char *sdf_cond_end_;
-  const char *mode_name_;
-  const char *mode_value_;
-  float ocv_arc_depth_;
   unsigned index_;
   bool is_disabled_constraint_;
   TimingArc *from_arc1_[RiseFall::index_count];
   TimingArc *from_arc2_[RiseFall::index_count];
+  TimingArc *to_arc_[RiseFall::index_count];
 
+  static TimingArcAttrsPtr wire_timing_arc_attrs_;
   static TimingArcSet *wire_timing_arc_set_;
-};
-
-class TimingArcSetArcIterator : public TimingArcSeq::ConstIterator
-{
-public:
-  TimingArcSetArcIterator(const TimingArcSet *set);
 };
 
 // A timing arc is a single from/to transition between two ports.
@@ -248,7 +239,7 @@ public:
   unsigned index() const { return index_; }
   TimingModel *model(const OperatingConditions *op_cond) const;
   TimingModel *model() const { return model_; }
-  TimingArc *cornerArc(int ap_index);
+  const TimingArc *cornerArc(int ap_index) const;
   void setCornerArc(TimingArc *corner_arc,
 		    int ap_index);
   float driveResistance() const;

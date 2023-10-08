@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,6 +16,8 @@
 
 #include "LumpedCapDelayCalc.hh"
 
+#include <cmath>  // isnan
+
 #include "Debug.hh"
 #include "Units.hh"
 #include "TimingArc.hh"
@@ -28,6 +30,8 @@
 #include "GraphDelayCalc.hh"
 
 namespace sta {
+
+using std::isnan;
 
 ArcDelayCalc *
 makeLumpedCapDelayCalc(StaState *sta)
@@ -51,51 +55,50 @@ LumpedCapDelayCalc::findParasitic(const Pin *drvr_pin,
 				  const RiseFall *rf,
 				  const DcalcAnalysisPt *dcalc_ap)
 {
-  // set_load has precidence over parasitics.
-  if (!sdc_->drvrPinHasWireCap(drvr_pin)) {
-    Parasitic *parasitic = nullptr;
+  Parasitic *parasitic = nullptr;
+  const Corner *corner = dcalc_ap->corner();
+  // set_load net has precidence over parasitics.
+  if (!sdc_->drvrPinHasWireCap(drvr_pin, corner)) {
     const ParasiticAnalysisPt *parasitic_ap = dcalc_ap->parasiticAnalysisPt();
     if (parasitics_->haveParasitics()) {
       // Prefer PiElmore.
       parasitic = parasitics_->findPiElmore(drvr_pin, rf, parasitic_ap);
-      if (parasitic)
-	return parasitic;
-
-      Parasitic *parasitic_network =
-	parasitics_->findParasiticNetwork(drvr_pin, parasitic_ap);
-      if (parasitic_network) {
-	parasitics_->reduceToPiElmore(parasitic_network, drvr_pin,
-				      dcalc_ap->operatingConditions(),
-				      dcalc_ap->corner(),
-				      dcalc_ap->constraintMinMax(),
-				      parasitic_ap);
-	parasitic = parasitics_->findPiElmore(drvr_pin, rf, parasitic_ap);
-	reduced_parasitic_drvrs_.push_back(drvr_pin);
-	return parasitic;
+      if (parasitic == nullptr) {
+        Parasitic *parasitic_network =
+          parasitics_->findParasiticNetwork(drvr_pin, parasitic_ap);
+        if (parasitic_network) {
+          parasitics_->reduceToPiElmore(parasitic_network, drvr_pin,
+                                        dcalc_ap->operatingConditions(),
+                                        corner,
+                                        dcalc_ap->constraintMinMax(),
+                                        parasitic_ap);
+          parasitic = parasitics_->findPiElmore(drvr_pin, rf, parasitic_ap);
+          reduced_parasitic_drvrs_.push_back(drvr_pin);
+        }
       }
     }
-
-    const MinMax *cnst_min_max = dcalc_ap->constraintMinMax();
-    Wireload *wireload = sdc_->wireloadDefaulted(cnst_min_max);
-    if (wireload) {
-      float pin_cap, wire_cap, fanout;
-      bool has_wire_cap;
-      graph_delay_calc_->netCaps(drvr_pin, rf, dcalc_ap,
-				 pin_cap, wire_cap, fanout, has_wire_cap);
-      parasitic = parasitics_->estimatePiElmore(drvr_pin, rf, wireload,
-						fanout, pin_cap,
-						dcalc_ap->operatingConditions(),
-						dcalc_ap->corner(),
-						cnst_min_max,
-						parasitic_ap);
-      // Estimated parasitics are not recorded in the "database", so
-      // it for deletion after the drvr pin delay calc is finished.
-      if (parasitic)
-	unsaved_parasitics_.push_back(parasitic);
-      return parasitic;
+    else {
+      const MinMax *cnst_min_max = dcalc_ap->constraintMinMax();
+      Wireload *wireload = sdc_->wireload(cnst_min_max);
+      if (wireload) {
+        float pin_cap, wire_cap, fanout;
+        bool has_wire_cap;
+        graph_delay_calc_->netCaps(drvr_pin, rf, dcalc_ap,
+                                   pin_cap, wire_cap, fanout, has_wire_cap);
+        parasitic = parasitics_->estimatePiElmore(drvr_pin, rf, wireload,
+                                                  fanout, pin_cap,
+                                                  dcalc_ap->operatingConditions(),
+                                                  corner,
+                                                  cnst_min_max,
+                                                  parasitic_ap);
+        // Estimated parasitics are not recorded in the "database", so save
+        // it for deletion after the drvr pin delay calc is finished.
+        if (parasitic)
+          unsaved_parasitics_.push_back(parasitic);
+      }
     }
   }
-  return nullptr;
+  return parasitic;
 }
 
 ReducedParasiticType
@@ -118,7 +121,7 @@ LumpedCapDelayCalc::finishDrvrPin()
 void
 LumpedCapDelayCalc::inputPortDelay(const Pin *, float in_slew,
 				   const RiseFall *rf,
-				   Parasitic *,
+				   const Parasitic *,
 				   const DcalcAnalysisPt *)
 {
   drvr_slew_ = in_slew;
@@ -129,10 +132,10 @@ LumpedCapDelayCalc::inputPortDelay(const Pin *, float in_slew,
 
 float
 LumpedCapDelayCalc::ceff(const LibertyCell *,
-			 TimingArc *,
+			 const TimingArc *,
 			 const Slew &,
 			 float load_cap,
-			 Parasitic *,
+			 const Parasitic *,
 			 float,
 			 const Pvt *,
 			 const DcalcAnalysisPt *)
@@ -142,10 +145,10 @@ LumpedCapDelayCalc::ceff(const LibertyCell *,
 
 void
 LumpedCapDelayCalc::gateDelay(const LibertyCell *drvr_cell,
-			      TimingArc *arc,
+			      const TimingArc *arc,
 			      const Slew &in_slew,
 			      float load_cap,
-			      Parasitic *,
+			      const Parasitic *,
 			      float related_out_cap,
 			      const Pvt *pvt,
 			      const DcalcAnalysisPt *dcalc_ap,
@@ -163,6 +166,9 @@ LumpedCapDelayCalc::gateDelay(const LibertyCell *drvr_cell,
     ArcDelay gate_delay1;
     Slew drvr_slew1;
     float in_slew1 = delayAsFloat(in_slew);
+    // NaNs cause seg faults during table lookup.
+    if (isnan(load_cap) || isnan(related_out_cap) || isnan(delayAsFloat(in_slew)))
+      report_->error(710, "gate delay input variable is NaN");
     model->gateDelay(drvr_cell, pvt, in_slew1, load_cap, related_out_cap,
 		     pocv_enabled_, gate_delay1, drvr_slew1);
     gate_delay = gate_delay1;
@@ -234,29 +240,29 @@ LumpedCapDelayCalc::thresholdLibrary(const Pin *load_pin)
   }
 }
 
-void
+string
 LumpedCapDelayCalc::reportGateDelay(const LibertyCell *drvr_cell,
-				    TimingArc *arc,
+				    const TimingArc *arc,
 				    const Slew &in_slew,
 				    float load_cap,
-				    Parasitic *,
+				    const Parasitic *,
 				    float related_out_cap,
 				    const Pvt *pvt,
 				    const DcalcAnalysisPt *dcalc_ap,
-				    int digits,
-				    string *result)
+				    int digits)
 {
   GateTimingModel *model = gateModel(arc, dcalc_ap);
   if (model) {
     float in_slew1 = delayAsFloat(in_slew);
-    model->reportGateDelay(drvr_cell, pvt, in_slew1, load_cap,
-			   related_out_cap, false, digits, result);
+    return model->reportGateDelay(drvr_cell, pvt, in_slew1, load_cap,
+                                  related_out_cap, false, digits);
   }
+  return "";
 }
 
 void
 LumpedCapDelayCalc::checkDelay(const LibertyCell *cell,
-			       TimingArc *arc,
+			       const TimingArc *arc,
 			       const Slew &from_slew,
 			       const Slew &to_slew,
 			       float related_out_cap,
@@ -276,25 +282,25 @@ LumpedCapDelayCalc::checkDelay(const LibertyCell *cell,
     margin = delay_zero;
 }
 
-void
+string
 LumpedCapDelayCalc::reportCheckDelay(const LibertyCell *cell,
-				     TimingArc *arc,
+				     const TimingArc *arc,
 				     const Slew &from_slew,
 				     const char *from_slew_annotation,
 				     const Slew &to_slew,
 				     float related_out_cap,
 				     const Pvt *pvt,
 				     const DcalcAnalysisPt *dcalc_ap,
-				     int digits,
-				     string *result)
+				     int digits)
 {
   CheckTimingModel *model = checkModel(arc, dcalc_ap);
   if (model) {
     float from_slew1 = delayAsFloat(from_slew);
     float to_slew1 = delayAsFloat(to_slew);
-    model->reportCheckDelay(cell, pvt, from_slew1, from_slew_annotation, to_slew1,
-			    related_out_cap, false, digits, result);
+    return model->reportCheckDelay(cell, pvt, from_slew1, from_slew_annotation, to_slew1,
+                                   related_out_cap, false, digits);
   }
+  return "";
 }
 
 void

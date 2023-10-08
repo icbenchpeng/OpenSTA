@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -55,17 +55,17 @@ void
 UnitDelayCalc::inputPortDelay(const Pin *,
 			      float,
 			      const RiseFall *,
-			      Parasitic *,
+			      const Parasitic *,
 			      const DcalcAnalysisPt *)
 {
 }
 
 void
 UnitDelayCalc::gateDelay(const LibertyCell *,
-			 TimingArc *,
+			 const TimingArc *,
 			 const Slew &,
 			 float,
-			 Parasitic *,
+			 const Parasitic *,
 			 float,
 			 const Pvt *, const DcalcAnalysisPt *,
 			 // Return values.
@@ -86,10 +86,10 @@ UnitDelayCalc::loadDelay(const Pin *,
 
 float
 UnitDelayCalc::ceff(const LibertyCell *,
-		    TimingArc *,
+		    const TimingArc *,
 		    const Slew &,
 		    float,
-		    Parasitic *,
+		    const Parasitic *,
 		    float,
 		    const Pvt *,
 		    const DcalcAnalysisPt *)
@@ -97,25 +97,25 @@ UnitDelayCalc::ceff(const LibertyCell *,
   return 0.0;
 }
 
-void
+string
 UnitDelayCalc::reportGateDelay(const LibertyCell *,
-			       TimingArc *,
+			       const TimingArc *,
 			       const Slew &,
 			       float,
-			       Parasitic *,
+			       const Parasitic *,
 			       float,
 			       const Pvt *,
 			       const DcalcAnalysisPt *,
-			       int,
-			       string *result)
+			       int)
 {
-  *result += "Delay = 1.0\n";
-  *result += "Slew = 0.0\n";
+  string result("Delay = 1.0\n");
+  result += "Slew = 0.0\n";
+  return result;
 }
 
 void
 UnitDelayCalc::checkDelay(const LibertyCell *,
-			  TimingArc *,
+			  const TimingArc *,
 			  const Slew &,
 			  const Slew &,
 			  float,
@@ -127,19 +127,18 @@ UnitDelayCalc::checkDelay(const LibertyCell *,
   margin = units_->timeUnit()->scale();
 }
 
-void
+string
 UnitDelayCalc::reportCheckDelay(const LibertyCell *,
-				TimingArc *,
+				const TimingArc *,
 				const Slew &,
 				const char *,
 				const Slew &,
 				float,
 				const Pvt *,
 				const DcalcAnalysisPt *,
-				int,
-				string *result)
+				int)
 {
-  *result += "Check = 1.0\n";
+  return "Check = 1.0\n";
 }
 
 void

@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -36,14 +36,14 @@ GraphDelayCalc::setObserver(DelayCalcObserver *observer)
   delete observer;
 }
 
-string *
+string
 GraphDelayCalc::reportDelayCalc(Edge *,
 				TimingArc *,
 				const Corner *,
 				const MinMax *,
 				int)
 {
-  return new string;
+  return "";
 }
 
 float
@@ -54,7 +54,7 @@ GraphDelayCalc::incrementalDelayTolerance()
 
 void
 GraphDelayCalc::loadCap(const Pin *,
-			Parasitic *,
+			const Parasitic *,
 			const RiseFall *,
 			const DcalcAnalysisPt *,
 			// Return values.
@@ -74,7 +74,7 @@ GraphDelayCalc::loadCap(const Pin *,
 
 float
 GraphDelayCalc::loadCap(const Pin *,
-			Parasitic *,
+			const Parasitic *,
 			const RiseFall *,
 			const DcalcAnalysisPt *) const
 {
@@ -127,7 +127,7 @@ GraphDelayCalc::minPulseWidth(const Pin *pin,
     LibertyPort *port = network_->libertyPort(pin);
     if (port) {
       Instance *inst = network_->instance(pin);
-      Pvt *pvt = inst ? sdc_->pvt(inst, min_max) : nullptr;
+      const Pvt *pvt = inst ? sdc_->pvt(inst, min_max) : nullptr;
       OperatingConditions *op_cond=sdc_->operatingConditions(min_max);
       port->minPulseWidth(hi_low, op_cond, pvt, min_width, exists);
     }
@@ -160,7 +160,7 @@ GraphDelayCalc::minPeriod(const Pin *pin,
       // Liberty library.
       Instance *inst = network_->instance(pin);
       OperatingConditions *op_cond = sdc_->operatingConditions(min_max);
-      Pvt *pvt = inst ? sdc_->pvt(inst, min_max) : nullptr;
+      const Pvt *pvt = inst ? sdc_->pvt(inst, min_max) : nullptr;
       port->minPeriod(op_cond, pvt, min_period, exists);
     }
   }

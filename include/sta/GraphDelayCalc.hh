@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,6 +17,7 @@
 #pragma once
 
 #include <string>
+
 #include "GraphClass.hh"
 #include "DcalcAnalysisPt.hh"
 #include "StaState.hh"
@@ -56,11 +57,11 @@ public:
   // Reset to virgin state.
   virtual void clear() {}
   // Returned string is owned by the caller.
-  virtual string *reportDelayCalc(Edge *edge,
-				  TimingArc *arc,
-				  const Corner *corner,
-				  const MinMax *min_max,
-				  int digits);
+  virtual string reportDelayCalc(Edge *edge,
+                                 TimingArc *arc,
+                                 const Corner *corner,
+                                 const MinMax *min_max,
+                                 int digits);
   // Percentage (0.0:1.0) change in delay that causes downstream
   // delays to be recomputed during incremental delay calculation.
   virtual float incrementalDelayTolerance();
@@ -70,7 +71,7 @@ public:
   // pin_cap  = net pin capacitances + port external pin capacitance,
   // wire_cap = annotated net capacitance + port external wire capacitance.
   virtual void loadCap(const Pin *drvr_pin,
-		       Parasitic *drvr_parasitic,
+		       const Parasitic *drvr_parasitic,
 		       const RiseFall *rf,
 		       const DcalcAnalysisPt *dcalc_ap,
 		       // Return values.
@@ -85,7 +86,7 @@ public:
 			const DcalcAnalysisPt *dcalc_ap) const;
   // Load pin_cap + wire_cap.
   virtual float loadCap(const Pin *drvr_pin,
-			Parasitic *drvr_parasitic,
+			const Parasitic *drvr_parasitic,
 			const RiseFall *rf,
 			const DcalcAnalysisPt *dcalc_ap) const;
   virtual void netCaps(const Pin *drvr_pin,
